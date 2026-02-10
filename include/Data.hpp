@@ -111,7 +111,7 @@ class Data {
             unsigned seed);
 
         std::tuple<Eigen::MatrixXd, Eigen::MatrixXd, Eigen::MatrixXd, Eigen::MatrixXd, std::vector<int>, std::vector<int>>
-        makeMats(std::vector<int> inpNumsOfVars,
+        makeMats(const std::vector<std::vector<int>>& inpOffsets,
                           int outRows,
                           double trainFraction,
                           bool shuffleCalib,
