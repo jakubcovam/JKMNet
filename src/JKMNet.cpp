@@ -311,7 +311,8 @@ void JKMNet::init_mlps(){
     setMlp.setArchitecture(cfg_.mlp_architecture);
     setMlp.setActivations(std::vector<activ_func_type>(cfg_.mlp_architecture.size(), strToActivation(cfg_.activation)));
     setMlp.setWInitType(std::vector<weight_init_type>(cfg_.mlp_architecture.size(), strToWeightInit(cfg_.weight_init)));
-    Eigen::VectorXd x0 = Eigen::VectorXd::Zero(std::accumulate(cfg_.input_numbers.begin(), cfg_.input_numbers.end(), 0));
+    Eigen::VectorXd x0 = Eigen::VectorXd::Zero(std::accumulate(cfg_.input_numbers.begin(),cfg_.input_numbers.end(),0,
+                        [](int s, const std::vector<int>& v) {return s + static_cast<int>(v.size());}));
     
     #pragma omp parallel for num_threads(nthreads_)
     for(unsigned i = 0; i < Nmlps; i++){

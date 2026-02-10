@@ -346,7 +346,11 @@ void Data::logRunSettings(std::ostream& os, const RunConfig& cfg, unsigned run_i
     os << "Activation: "     << cfg.activation     << "\n";
     os << "Weight init: "    << cfg.weight_init    << "\n";
     os << "Input numbers: ";
-    for (auto v : cfg.input_numbers) os << v << " ";
+    for (const auto& v : cfg.input_numbers) {
+        for (int off : v)
+            os << off << ",";
+        os << " | ";
+    }
     os << "\n";
 
     // --- Training ---
@@ -1398,49 +1402,73 @@ Data::makeKFoldMats(
 }
 
 std::tuple<Eigen::MatrixXd, Eigen::MatrixXd, Eigen::MatrixXd, Eigen::MatrixXd, std::vector<int>, std::vector<int>>
-Data::makeMats(std::vector<int> inpNumsOfVars,
-                          int outRows,
-                          double trainFraction,
-                          bool shuffleCalib,
-                          unsigned seed) const
+Data::makeMats(
+    const std::vector<std::vector<int>>& inpOffsets,
+    int outRows,
+    double trainFraction,
+    bool shuffleCalib,
+    unsigned seed
+) const
 {
-    if (outRows <= 0 || std::any_of(inpNumsOfVars.begin(), inpNumsOfVars.end(), [](int x){ return x < 0; }))
-        throw std::invalid_argument("inpNumsOfVars values and outRows must be positive");
+    if (outRows <= 0)
+        throw std::invalid_argument("outRows must be positive");
 
     if (trainFraction <= 0.0 || trainFraction >= 1.0)
         throw std::invalid_argument("trainFraction must be in (0,1)");
 
-    const auto maxR = *std::max_element(inpNumsOfVars.begin(), inpNumsOfVars.end());
-    if (maxR == 0)
-        throw std::runtime_error("At least one value in inpNumsOfVars must be > 0");
-
     const size_t DC = m_data.cols();
-    if (DC < 1) throw std::runtime_error("Data has no columns");
-    if (inpNumsOfVars.size() != DC)
-        throw std::invalid_argument("inpNumsOfVars size does not match data columns");
+    if (DC < 1)
+        throw std::runtime_error("Data has no columns");
 
-    const int CRcand = static_cast<int>(m_data.rows()) - static_cast<int>(maxR) - outRows + 1;
+    if (inpOffsets.size() != DC)
+        throw std::invalid_argument("inpOffsets size does not match data columns");
+
+    int inpC = 0;
+    for (const auto& v : inpOffsets)
+        inpC += static_cast<int>(v.size());
+
+    if (inpC == 0)
+        throw std::runtime_error("No input features selected (all inpOffsets empty)");
+
+    int minOff = 0, maxOff = 0;
+    for (const auto& v : inpOffsets) {
+        for (int o : v) {
+            minOff = std::min(minOff, o);
+            maxOff = std::max(maxOff, o);
+        }
+    }
+
+    const int nRows = static_cast<int>(m_data.rows());
+    const int lastNeeded = std::max(maxOff, outRows - 1);
+    const int CRcand = nRows - lastNeeded + minOff;
+
     if (CRcand <= 0)
-        throw std::runtime_error("Not enough rows to build patterns with given inpNumsOfVars/outRows");
+        throw std::runtime_error(
+            "Not enough rows to build patterns with given offsets/outRows"
+        );
 
-    const int inpC = static_cast<int>(std::accumulate(inpNumsOfVars.begin(), inpNumsOfVars.end(), 0));
-
-    std::vector<int>globalIdx;
+    std::vector<int> globalIdx;
     std::vector<std::vector<double>> rowsIn;
     std::vector<std::vector<double>> rowsOut;
+
     rowsIn.reserve(static_cast<size_t>(CRcand));
     rowsOut.reserve(static_cast<size_t>(CRcand));
 
     for (int i = 0; i < CRcand; ++i) {
         bool ok = true;
+
+        // --- vstupy ---
         std::vector<double> inrow;
         inrow.reserve(inpC);
 
         for (size_t j = 0; j < DC; ++j) {
-            for (int l = 0; l < inpNumsOfVars[j]; ++l) {
-                int rindex = i + static_cast<int>(maxR) - inpNumsOfVars[j] + l;
+            for (int off : inpOffsets[j]) {
+                int rindex = i - minOff + off;
                 double v = m_data(rindex, static_cast<Eigen::Index>(j));
-                if (!std::isfinite(v)) { ok = false; break; }
+                if (!std::isfinite(v)) {
+                    ok = false;
+                    break;
+                }
                 inrow.push_back(v);
             }
             if (!ok) break;
@@ -1449,10 +1477,14 @@ Data::makeMats(std::vector<int> inpNumsOfVars,
 
         std::vector<double> outrow;
         outrow.reserve(outRows);
+
         for (int j = 0; j < outRows; ++j) {
-            int rindex = i + static_cast<int>(maxR) + j;
+            int rindex = i - minOff + j;
             double v = m_data(rindex, static_cast<Eigen::Index>(DC - 1));
-            if (!std::isfinite(v)) { ok = false; break; }
+            if (!std::isfinite(v)) {
+                ok = false;
+                break;
+            }
             outrow.push_back(v);
         }
         if (!ok) continue;
@@ -1467,7 +1499,8 @@ Data::makeMats(std::vector<int> inpNumsOfVars,
         throw std::runtime_error("No valid patterns after filtering NaNs");
 
     int nTrain = static_cast<int>(std::floor(trainFraction * total));
-    nTrain = std::max(1, std::min<int>(nTrain, total - 1));
+    nTrain = std::max(1, std::min(nTrain, total - 1));
+
     std::vector<int> idx(total);
     std::iota(idx.begin(), idx.end(), 0);
 
@@ -1483,17 +1516,24 @@ Data::makeMats(std::vector<int> inpNumsOfVars,
 
     for (int i = 0; i < nTrain; ++i) {
         int ri = idx[i];
-        for (int c = 0; c < inpC; ++c) trainIn(i, c) = rowsIn[ri][c];
-        for (int c = 0; c < outRows; ++c) trainOut(i, c) = rowsOut[ri][c];
+        for (int c = 0; c < inpC; ++c)
+            trainIn(i, c) = rowsIn[ri][c];
+        for (int c = 0; c < outRows; ++c)
+            trainOut(i, c) = rowsOut[ri][c];
     }
+
     for (int i = nTrain; i < total; ++i) {
         int ri = idx[i];
         int vi = i - nTrain;
-        for (int c = 0; c < inpC; ++c) validIn(vi, c) = rowsIn[ri][c];
-        for (int c = 0; c < outRows; ++c) validOut(vi, c) = rowsOut[ri][c];
+        for (int c = 0; c < inpC; ++c)
+            validIn(vi, c) = rowsIn[ri][c];
+        for (int c = 0; c < outRows; ++c)
+            validOut(vi, c) = rowsOut[ri][c];
     }
+
     std::vector<int> calIdx(idx.begin(), idx.begin() + nTrain);
-    return { trainIn, trainOut, validIn, validOut, globalIdx, calIdx};
+
+    return {trainIn, trainOut, validIn, validOut, globalIdx, calIdx};
 }
 
 bool Data::saveVector(const std::vector<int>& v, const std::string& path) {

@@ -47,6 +47,18 @@ static inline std::vector<std::string> splitCommaList(const std::string &s) {
     return out;
 }
 
+static inline std::vector<std::string>
+splitList(const std::string& s, char delim)
+{
+    std::vector<std::string> out;
+    std::string cur;
+    std::istringstream iss(s);
+    while (std::getline(iss, cur, delim)) {
+        out.push_back(trimStr(cur));
+    }
+    return out;
+}
+
 static inline bool parseBool(const std::string &s) {
     std::string x; x.reserve(s.size());
     for (char c : s) x.push_back(static_cast<char>(std::toupper((unsigned char)c)));
@@ -62,7 +74,7 @@ struct RunConfig {
     // model / training
     std::string trainer = "online";                 // "online" or "batch"
     std::vector<unsigned> mlp_architecture;         // e.g. [8,6,2]
-    std::vector<int> input_numbers;                 // e.g. [0,0,1,2]
+    std::vector<std::vector<int>> input_numbers;                 // e.g. [-2,-1 0; -1,0,1,2 ; ; -2,-1 ]
     std::string activation = "RELU";
     std::string weight_init = "RANDOM";
 
@@ -226,15 +238,64 @@ inline std::vector<unsigned> parseUnsignedList(const std::string &s) {
     return out;
 }
 
-inline std::vector<int> parseIntList(const std::string &s) {
-    std::vector<int> out;
-    for (auto &tok : splitCommaList(s)) {
-        try {
-            out.push_back(std::stoi(tok));
-        } catch (...) {
-            throw std::runtime_error("parseIntList: invalid integer '" + tok + "'");
+inline std::vector<int> parseRangeToken(const std::string& tok)
+{
+    auto parts = splitList(tok, ':');
+
+    try {
+        if (parts.size() == 1) {
+            return { std::stoi(parts[0]) };
         }
+        else if (parts.size() == 2 || parts.size() == 3) {
+            int a = std::stoi(parts[0]);
+            int b = std::stoi(parts[1]);
+            int step = (parts.size() == 3) ? std::stoi(parts[2]) : 1;
+            if (step <= 0)
+                throw std::runtime_error("step must be positive");
+
+            std::vector<int> out;
+            if (a <= b) {
+                for (int i = a; i <= b; i += step) out.push_back(i);
+            } else {
+                for (int i = a; i >= b; i -= step) out.push_back(i);
+            }
+            return out;
+        }
+    } catch (...) {
+        throw std::runtime_error("Invalid range token '" + tok + "'");
     }
+
+    throw std::runtime_error("Invalid range token '" + tok + "'");
+}
+
+inline std::vector<int> parseOffsetExpr(const std::string& s)
+{
+    std::vector<int> out;
+
+    for (auto& tok : splitList(s, ',')) {
+        if (tok.empty()) continue;
+        auto v = parseRangeToken(tok);
+        out.insert(out.end(), v.begin(), v.end());
+    }
+
+    std::sort(out.begin(), out.end());
+    out.erase(std::unique(out.begin(), out.end()), out.end());
+
+    return out;
+}
+
+inline std::vector<std::vector<int>>
+parseOffsetLists(const std::string& s)
+{
+    std::vector<std::vector<int>> out;
+
+    for (auto& block : splitList(s, '|')) {
+        if (block.empty())
+            out.emplace_back();
+        else
+            out.push_back(parseOffsetExpr(block));
+    }
+
     return out;
 }
 
@@ -281,7 +342,7 @@ inline RunConfig parseConfigIni(const std::string &path) {
     if (!sarch.empty()) cfg.mlp_architecture = parseUnsignedList(sarch);
 
     std::string sinpnums = get("input_numbers");
-    if (!sinpnums.empty()) cfg.input_numbers = parseIntList(sinpnums);
+    if (!sinpnums.empty()) cfg.input_numbers = parseOffsetLists(sinpnums);
 
     std::string sact = get("activation");
     if (!sact.empty()) cfg.activation = trimStr(sact);
