@@ -4,6 +4,15 @@
 #include "eigen-3.4/Eigen/Dense"
 #include "ConfigIni.hpp"
 
+struct LSTMSettings{
+    int cells = 0; // number of cells (neurons) in layer
+    int cells4gates = 0; // number of gates in all cells (cells * 4)
+    int inputs = 0; // number of input values to layer
+    int timeSteps = 0; // number of time steps in one computation segment of layer
+    int outTS = 0; // number of last time steps used as actual output
+    bool initialized = false;
+};
+
 class LSTMLayer
 {
 public:
@@ -22,6 +31,7 @@ public:
     void initLSTMLayer(const int numInputs,        
                     const int numCells,
                     const int numTimeSteps,
+                    const int numOutputTimeSteps,
                     std::string initType = "RANDOM",
                     int rngSeed = 0,
                     double minVal = 0.0,
@@ -29,23 +39,26 @@ public:
 
     void setInputTSSegment(const Eigen::MatrixXd& inputSegment);    //!< Set inputs for n time-steps
     void calculateTimeSteps();      //!< Calculate outputs for n time-steps
+    void calculateGradients();
+    void updateWeights(double learningRate);
+    void eraseMemory();
 
 private:
-    Eigen::MatrixXd W;  //!< The input weight matrix (all gates - by rows forget, input, candidate, output)
-    Eigen::MatrixXd U;  //!< The hidden state (short memory) gate weight matrix (all gates - by rows forget, input, candidate, output)
+    LSTMSettings settings;  //!< Settings of the layer
+    Eigen::MatrixXd W;  //!< The input weight matrix (all gates - by rows candidate, forget, input, output)
+    Eigen::MatrixXd U;  //!< The hidden state (short memory) gate weight matrix (all gates - by rows candidate, forget, input, output)
     Eigen::VectorXd b;  //!< The bias vector (all gates...)
     Eigen::MatrixXd timeStepsInputs;  //!< The matrix of inputs for n time-steps (rows = time-steps)
-    Eigen::MatrixXd activationsWhole;  //!< Computed activations all gates (by rows) all time steps (by columns)
-    Eigen::MatrixXd forgetGate;     //!< Computed forget gate outputs all cells (rows) all time steps (columns)
-    Eigen::MatrixXd inputGate;      //!< Computed input gate outputs all cells (rows) all time steps (columns)
-    Eigen::MatrixXd candidateGate;  //!< Computed candidate gate outputs all cells (rows) all time steps (columns)
-    Eigen::MatrixXd outputGate;     //!< Computed output gate outputs all cells (rows) all time steps (columns)
+    Eigen::MatrixXd gatesActivations;  //!< Computed activations all gates (by rows) all time steps (by columns)
+    Eigen::MatrixXd gatesOutputs;   //!< Computed outputs all gates (by rows) all time steps (by columns)
     Eigen::MatrixXd cellState;      //!< Computed cell state (long memory) all cells (rows) all time steps (columns)
     Eigen::MatrixXd output;         //!< Computed outputs (short memory) all cells (rows) all time steps (columns)
     Eigen::MatrixXd Wgradient;
     Eigen::MatrixXd Ugradient;
     Eigen::VectorXd bGradient;
-
+    Eigen::MatrixXd deltaOutput;
+    Eigen::MatrixXd deltaCellState;
+    Eigen::MatrixXd deltaGates;
 };
 
 #endif // LSTMLAYER_HPP
