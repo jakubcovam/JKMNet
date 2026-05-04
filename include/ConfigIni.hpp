@@ -90,7 +90,7 @@ struct RunConfig {
     bool split_shuffle = true;
 
     // transforms
-    std::string transform = "NONE";
+    std::vector<std::string> transform;
     double transform_alpha = 0.015;
     bool exclude_last_col_from_transform = false;
     bool remove_na_before_calib = true;
@@ -172,6 +172,24 @@ inline transform_type strToTransformType(const std::string &s) {
     if (u == "ZSCORE") return transform_type::ZSCORE;
 
     throw std::runtime_error("Unknown transform: " + s);
+}
+
+inline std::vector<transform_type>
+strVecToTransformTypes(const std::vector<std::string>& strs)
+{
+    std::vector<transform_type> out;
+    out.reserve(strs.size());
+    for (std::size_t i = 0; i < strs.size(); ++i) {
+        try {
+            out.push_back(strToTransformType(strs[i]));
+        } catch (const std::exception& e) {
+            throw std::runtime_error(
+                "Invalid transform at index " + std::to_string(i) +
+                ": " + strs[i]
+            );
+        }
+    }
+    return out;
 }
 
 enum class TrainerType {
@@ -381,7 +399,10 @@ inline RunConfig parseConfigIni(const std::string &path) {
     if (!ssplitshuffle.empty()) cfg.split_shuffle = parseBool(ssplitshuffle);
 
     std::string strans = get("transform");
-    if (!strans.empty()) cfg.transform = trimStr(strans);
+    if (!strans.empty()) cfg.transform = parseStringList(strans);
+    if (cfg.transform.size() == 1 && cfg.columns.size() > 1) {
+        cfg.transform.resize(cfg.columns.size(), cfg.transform[0]);
+    }
 
     std::string sa = get("transform_alpha");
     if (!sa.empty()) cfg.transform_alpha = std::stod(sa);
