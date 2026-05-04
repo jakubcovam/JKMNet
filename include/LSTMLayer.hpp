@@ -11,6 +11,7 @@ struct LSTMSettings{
     int timeSteps = 0; // number of time steps in one computation segment of layer
     int outTS = 0; // number of last time steps used as actual output
     bool initialized = false;
+    bool isFirstLayer = false;
 };
 
 class LSTMLayer
@@ -32,6 +33,7 @@ public:
                     const int numCells,
                     const int numTimeSteps,
                     const int numOutputTimeSteps,
+                    bool isFirstLayer,
                     std::string initType = "RANDOM",
                     int rngSeed = 0,
                     double minVal = 0.0,
@@ -42,6 +44,11 @@ public:
     void calculateGradients();
     void updateWeights(double learningRate);
     void eraseMemory();
+    void setDeltaFromNextLayer(const Eigen::VectorXd& delta);
+    void setDeltaFromNextLayer(const Eigen::MatrixXd& delta);
+    Eigen::MatrixXd getDeltaInputs();
+    Eigen::MatrixXd getForwardOutput();
+    Eigen::VectorXd getForwardOutputVector();
 
 private:
     LSTMSettings settings;  //!< Settings of the layer
@@ -53,12 +60,15 @@ private:
     Eigen::MatrixXd gatesOutputs;   //!< Computed outputs all gates (by rows) all time steps (by columns)
     Eigen::MatrixXd cellState;      //!< Computed cell state (long memory) all cells (rows) all time steps (columns)
     Eigen::MatrixXd output;         //!< Computed outputs (short memory) all cells (rows) all time steps (columns)
+    Eigen::MatrixXd forwardOutput;  //!< Computed outputs all cells (rows) only outTS time steps (columns)
     Eigen::MatrixXd Wgradient;
     Eigen::MatrixXd Ugradient;
     Eigen::VectorXd bGradient;
     Eigen::MatrixXd deltaOutput;
     Eigen::MatrixXd deltaCellState;
     Eigen::MatrixXd deltaGates;
+    Eigen::MatrixXd nextLayerDelta;
+    Eigen::MatrixXd deltaInputs;
 };
 
 #endif // LSTMLAYER_HPP
