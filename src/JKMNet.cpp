@@ -341,7 +341,7 @@ void JKMNet::ensembleRunMlpVector(){
     std::cout << "-> Data loaded." << std::endl;
 
     std::cout << "-> Transforming data..." << std::endl;
-    data_.setTransform(strToTransformType(cfg_.transform),
+    data_.setTransform(strVecToTransformTypes(cfg_.transform),
                        cfg_.transform_alpha,
                        cfg_.exclude_last_col_from_transform);
     data_.applyTransform();
@@ -624,7 +624,7 @@ void JKMNet::predictFromSavedWeights(const std::string &weightsPath)
     std::cout << "-> Data loaded.\n";
 
     std::cout << "-> Transforming data...\n";
-    data_.setTransform(strToTransformType(cfg_.transform),
+    data_.setTransform(strVecToTransformTypes(cfg_.transform),
                        cfg_.transform_alpha,
                        cfg_.exclude_last_col_from_transform);
     data_.applyTransform();

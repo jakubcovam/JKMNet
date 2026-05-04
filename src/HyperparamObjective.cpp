@@ -46,7 +46,7 @@ double evaluateMLPwithParams(const Eigen::VectorXd &params, const RunConfig &cfg
         }
 
         data.loadFilteredCSV(cfg.data_file, idFilter, cfg.columns, cfg.timestamp, cfg.id_col);
-        data.setTransform(strToTransformType(cfg.transform),
+        data.setTransform(strVecToTransformTypes(cfg.transform),
                           cfg.transform_alpha,
                           cfg.exclude_last_col_from_transform);
         data.applyTransform();

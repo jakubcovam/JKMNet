@@ -366,7 +366,9 @@ void Data::logRunSettings(std::ostream& os, const RunConfig& cfg, unsigned run_i
     os << "Seed: "           << cfg.seed           << "\n";
 
     // --- Transform ---
-    os << "Transform: " << cfg.transform << "\n";
+    os << "Transform: ";
+    for (const auto& t : cfg.transform) os << t << " ";
+    os << "\n";
     os << "Transform alpha: " << cfg.transform_alpha << "\n";
     os << "Exclude last col from transform: "
        << (cfg.exclude_last_col_from_transform ? "true" : "false") << "\n";
@@ -455,15 +457,24 @@ std::vector<double> Data::getColumnValues(const std::string& name) const {
 }
 
 /**
- * Set which transform to apply (applies to all numeric columns)
+ * Set which transform to apply for each column
  */
-void Data::setTransform(transform_type t, double alpha, bool excludeLastCol) {
-    m_transform = t;
+void Data::setTransform(const std::vector<transform_type>& transforms,
+                        double alpha,
+                        bool excludeLastCol)
+{
     m_alpha = alpha;
     m_excludeLastCol = excludeLastCol;
 
-    // ensure scaler vectors have correct size (will be filled when applying MINMAX)
     Eigen::Index cols = m_data.cols();
+
+    if (static_cast<Eigen::Index>(transforms.size()) != cols) {
+        throw std::runtime_error("setTransform: size of transforms vector must match number of columns");
+    }
+
+    m_transforms = transforms;
+
+    // ensure scaler vectors have correct size (will be filled when applying MINMAX)
     if (cols <= 0) {
         m_scaler.min.resize(0);
         m_scaler.max.resize(0);
@@ -478,11 +489,15 @@ void Data::setTransform(transform_type t, double alpha, bool excludeLastCol) {
 /**
  * Apply the previously configured transform to m_data
  */
-void Data::applyTransform() {
-    if (m_transform == transform_type::NONE) return;
+void Data::applyTransform()
+{
     const Eigen::Index R = m_data.rows();
     const Eigen::Index C = m_data.cols();
     if (R == 0 || C == 0) return;
+
+    if (m_transforms.empty()) {
+        m_transforms.resize(C, transform_type::NONE);
+    }
 
     // helper to decide whether to operate on column c
     auto shouldTransformCol = [&](int c)->bool {
@@ -490,58 +505,69 @@ void Data::applyTransform() {
         return c != static_cast<int>(C) - 1;
     };
 
-    switch (m_transform) {
-        
-        case transform_type::MINMAX:
-        {
-            // compute min/max and scale each column to [0,1]
-            for (Eigen::Index c = 0; c < C; ++c) {
-                if (!shouldTransformCol(static_cast<int>(c))) {
-                    m_scaler.min(c) = 0.0;
-                    m_scaler.max(c) = 1.0;
-                    continue;
-                }
+    for (Eigen::Index c = 0; c < C; ++c) {
+
+        if (!shouldTransformCol(static_cast<int>(c)))
+            continue;
+
+        switch (m_transforms[c]) {
+
+            case transform_type::NONE:
+                break;
+
+            case transform_type::MINMAX:
+            {
                 double mn = std::numeric_limits<double>::infinity();
                 double mx = -std::numeric_limits<double>::infinity();
                 std::size_t cnt = 0;
-                for (Eigen::Index r = 0; r < R; ++r) {
-                    double v = m_data(r, c);
-                    if (std::isfinite(v)) { mn = std::min(mn, v); mx = std::max(mx, v); ++cnt; }
-                }
-                if (cnt == 0) { mn = 0.0; mx = 1.0; }
-                m_scaler.min(c) = mn;
-                m_scaler.max(c) = mx;
-                double span = (mx - mn); if (span == 0.0) span = 1.0;
-                for (Eigen::Index r = 0; r < R; ++r) {
-                    double &x = m_data(r, c);
-                    if (std::isfinite(x)) x = (x - mn) / span;
-                }
-            }
-            m_scaler.fitted = true;
-            break;
-        }
 
-        case transform_type::NONLINEAR:
-        {
-            double alpha = m_alpha;
-            for (Eigen::Index c = 0; c < C; ++c) {
-                if (!shouldTransformCol(static_cast<int>(c))) continue;
                 for (Eigen::Index r = 0; r < R; ++r) {
                     double v = m_data(r, c);
                     if (std::isfinite(v)) {
-                        double t = 1.0 - std::exp(-alpha * v);
-                        m_data(r, c) = std::isfinite(t) ? t : std::numeric_limits<double>::quiet_NaN();
+                        mn = std::min(mn, v);
+                        mx = std::max(mx, v);
+                        ++cnt;
                     }
                 }
+
+                if (cnt == 0) {
+                    mn = 0.0;
+                    mx = 1.0;
+                }
+
+                m_scaler.min(c) = mn;
+                m_scaler.max(c) = mx;
+
+                double span = mx - mn;
+                if (span == 0.0) span = 1.0;
+
+                for (Eigen::Index r = 0; r < R; ++r) {
+                    double& x = m_data(r, c);
+                    if (std::isfinite(x)) {
+                        x = (x - mn) / span;
+                    }
+                }
+
+                m_scaler.fitted = true;
+                break;
             }
-            break;
-        }
 
-        case transform_type::ZSCORE:    // t = (x - mean) / sd
-        {
-            for (Eigen::Index c = 0; c < C; ++c) {
-                if (!shouldTransformCol(static_cast<int>(c))) continue;
+            case transform_type::NONLINEAR:
+            {
+                for (Eigen::Index r = 0; r < R; ++r) {
+                    double v = m_data(r, c);
+                    if (std::isfinite(v)) {
+                        double t = 1.0 - std::exp(-m_alpha * v);
+                        m_data(r, c) = std::isfinite(t)
+                            ? t
+                            : std::numeric_limits<double>::quiet_NaN();
+                    }
+                }
+                break;
+            }
 
+            case transform_type::ZSCORE:        // t = (x - mean) / sd
+            {
                 double sum = 0.0;
                 double sumsq = 0.0;
                 Eigen::Index count = 0;
@@ -555,167 +581,215 @@ void Data::applyTransform() {
                     }
                 }
 
-                if (count > 1) {
-                    double mean = sum / static_cast<double>(count);
-                    double variance = (sumsq / static_cast<double>(count)) - (mean * mean);
-                    double stddev = variance > 0.0 ? std::sqrt(variance) : 0.0;
-
+                if (count <= 1) {
                     for (Eigen::Index r = 0; r < R; ++r) {
-                        double v = m_data(r, c);
-                        if (std::isfinite(v)) {
-                            if (stddev > 0.0) {
-                                double t = (v - mean) / stddev;
-                                m_data(r, c) = std::isfinite(t) ? t : std::numeric_limits<double>::quiet_NaN();
-                            } else {
-                                m_data(r, c) = 0.0;
-                            }
+                        if (std::isfinite(m_data(r, c))) {
+                            m_data(r, c) = 0.0;
                         }
                     }
-                    // using Scaler struct also for zscore - min = mean, max = sd
-                    // might confuse, should change later
-                    m_scaler.min(c) = mean;
-                    m_scaler.max(c) = stddev;
-                    m_scaler.fitted = true;
+                    m_scaler.min(c) = 0.0;
+                    m_scaler.max(c) = 0.0;
+                    break;
                 }
-            }
-            break;
-        }
 
-        default:
-            break;
+                double mean = sum / static_cast<double>(count);
+                double variance = (sumsq / static_cast<double>(count)) - mean * mean;
+                double stddev = variance > 0.0 ? std::sqrt(variance) : 0.0;
+
+                for (Eigen::Index r = 0; r < R; ++r) {
+                    double v = m_data(r, c);
+                    if (std::isfinite(v)) {
+                        if (stddev > 0.0) {
+                            double t = (v - mean) / stddev;
+                            m_data(r, c) = std::isfinite(t)
+                                ? t
+                                : std::numeric_limits<double>::quiet_NaN();
+                        } else {
+                            m_data(r, c) = 0.0;
+                        }
+                    }
+                }
+
+                // using Scaler struct also for zscore - min = mean, max = sd
+                // might confuse, should change later
+                m_scaler.min(c) = mean;
+                m_scaler.max(c) = stddev;
+                m_scaler.fitted = true;
+                break;
+            }
+
+            default:
+                break;
+        }
     }
 }
 
 /**
  * Inverse the global transform (to bring predictions back)
  */
-void Data::inverseTransform() {
-    if (m_transform == transform_type::NONE) return;
+void Data::inverseTransform()
+{
+    if (m_transforms.empty())
+        return;
+
     const Eigen::Index R = m_data.rows();
     const Eigen::Index C = m_data.cols();
     if (R == 0 || C == 0) return;
-
-    // small tolerances for numeric clipping
-    //const double eps_clip_low = 1e-12;    // allow tiny negative numbers
-    //const double eps_clip_high = 1e-12;   // allow tiny >1 numbers to be clamped below 1.0
 
     auto shouldTransformCol = [&](int c)->bool {
         if (!m_excludeLastCol) return true;
         return c != static_cast<int>(C) - 1;
     };
 
-    switch (m_transform) {
-        case transform_type::MINMAX:
-        {
-            if (!m_scaler.fitted) throw std::runtime_error("Scaler not fitted for inverse");
-            for (Eigen::Index c = 0; c < C; ++c) {
-                if (!shouldTransformCol(static_cast<int>(c))) continue;
+    for (Eigen::Index c = 0; c < C; ++c) {
+
+        if (!shouldTransformCol(static_cast<int>(c)))
+            continue;
+
+        switch (m_transforms[c]) {
+
+            case transform_type::NONE:
+                break;
+
+            case transform_type::MINMAX:
+            {
+                if (!m_scaler.fitted)
+                    throw std::runtime_error("Scaler not fitted for inverse MINMAX");
+
                 double mn = m_scaler.min(c);
                 double mx = m_scaler.max(c);
-                double span = (mx - mn); if (span == 0.0) span = 1.0;
-                for (Eigen::Index r = 0; r < R; ++r) {
-                    double &x = m_data(r, c);
-                    if (std::isfinite(x)) x = x * span + mn;
-                }
-            }
-            break;
-        }
+                double span = mx - mn;
+                if (span == 0.0) span = 1.0;
 
-        case transform_type::NONLINEAR:
-        {
-            const double alpha = m_alpha; 
-            for (Eigen::Index c = 0; c < C; ++c) {
-                if (!shouldTransformCol(static_cast<int>(c))) continue;
                 for (Eigen::Index r = 0; r < R; ++r) {
-                    double &t = m_data(r, c);
-                    if (!std::isfinite(t)) continue;  // preserve NaN/Inf handling
+                    double& x = m_data(r, c);
+                    if (std::isfinite(x)) {
+                        x = x * span + mn;
+                    }
+                }
+                break;
+            }
+
+            case transform_type::NONLINEAR:
+            {
+                const double alpha = m_alpha;
+
+                for (Eigen::Index r = 0; r < R; ++r) {
+                    double& t = m_data(r, c);
+                    if (!std::isfinite(t))  // preserve NaN/Inf handling
+                        continue;
+
                     // If t >= 1.0 due to rounding/saturation, nudge it below 1.0
-                    if (t >= 1.0) t = std::nextafter(1.0, 0.0);
+                    if (t >= 1.0)
+                        t = std::nextafter(1.0, 0.0);
                     // Now safe: compute inverse (allows negative t)
                     double one_minus = 1.0 - t;  // > 0 here
-                    if (!(one_minus > 0.0)) throw std::runtime_error("inverseGlobalTransform: 1 - D_trans <= 0");
+                    if (!(one_minus > 0.0))
+                        throw std::runtime_error("inverseGlobalTransform: 1 - D_trans <= 0 in NONLINEAR");
+
                     t = -std::log(one_minus) / alpha;
                 }
+                break;
             }
-            break;
-        }
 
-        case transform_type::ZSCORE:
-        {
-            if (!m_scaler.fitted) throw std::runtime_error("Scaler not fitted for inverse");
-            for (Eigen::Index c = 0; c < C; ++c) {
-                if (!shouldTransformCol(static_cast<int>(c))) continue;
+            case transform_type::ZSCORE:
+            {
+                if (!m_scaler.fitted)
+                    throw std::runtime_error("Scaler not fitted for inverse ZSCORE");
+
                 double mean = m_scaler.min(c);
                 double stddev = m_scaler.max(c);
-                for (Eigen::Index r = 0; r < R; ++r) {
-                    double &x = m_data(r, c);
-                    if (std::isfinite(x)) x = x * stddev + mean;
-                }
-            }
-            break;
-        }
 
-        default:
-            break;
+                for (Eigen::Index r = 0; r < R; ++r) {
+                    double& x = m_data(r, c);
+                    if (std::isfinite(x)) {
+                        x = x * stddev + mean;
+                    }
+                }
+                break;
+            }
+
+            default:
+                break;
+        }
     }
 }
 
 /**
  * Inverse the global transform for outputs
  */
-Eigen::MatrixXd Data::inverseTransformOutputs(const Eigen::MatrixXd& M) const {
-    if (M.size() == 0) return M;
+Eigen::MatrixXd Data::inverseTransformOutputs(const Eigen::MatrixXd& M) const
+{
+    if (M.size() == 0)
+        return M;
 
-    switch (m_transform) {
+    if (m_transforms.empty())
+        return M;
+
+    // We assume the target column in original m_data is the last column.
+    // The MINMAX scaling is per-column; for outputs we apply the inverse min/max for the target col.
+    const Eigen::Index targetCol = m_data.cols() - 1;
+    if (targetCol < 0)
+        throw std::runtime_error("inverseTransformOutputs: no columns in m_data");
+
+    const transform_type t = m_transforms[targetCol];
+
+    switch (t) {
+
         case transform_type::NONE:
-            return M; // nothing to do
+            return M;
 
-        case transform_type::MINMAX: {
-            if (!m_scaler.fitted) {
+        case transform_type::MINMAX:
+        {
+            if (!m_scaler.fitted)
                 throw std::runtime_error("inverseTransformOutputs: MINMAX scaler not fitted");
-            }
-            // We assume the target column in original m_data is the last column.
-            // The MINMAX scaling is per-column; for outputs we apply the inverse min/max for the target col.
-            const Eigen::Index targetCol = m_data.cols() - 1;
-            if (targetCol < 0) throw std::runtime_error("inverseTransformOutputs: no columns in m_data");
+
             double mn = m_scaler.min(targetCol);
             double mx = m_scaler.max(targetCol);
-            double span = (mx - mn); if (span == 0.0) span = 1.0;
+            double span = mx - mn;
+            if (span == 0.0) span = 1.0;
 
             Eigen::MatrixXd out = M;
             out = out.array() * span + mn;
             return out;
         }
 
-        case transform_type::NONLINEAR: {
+        case transform_type::NONLINEAR:
+        {
             const double alpha = m_alpha;
             Eigen::MatrixXd out = M;
+
             for (Eigen::Index r = 0; r < out.rows(); ++r) {
                 for (Eigen::Index c = 0; c < out.cols(); ++c) {
-                    double t = out(r, c);
-                    if (!std::isfinite(t)) continue;
+                    double tval = out(r, c);
+                    if (!std::isfinite(tval)) continue;
+
                     // clamp / nudge to valid open interval (0,1)
-                    if (t >= 1.0) t = std::nextafter(1.0, 0.0);
-                    if (t < 0.0) {
-                        if (t > -1e-12) t = 0.0; // treat tiny negative as zero
-                        else throw std::runtime_error("inverseTransformOutputs: transformed value < 0");
+                    if (tval >= 1.0)
+                        tval = std::nextafter(1.0, 0.0);
+
+                    if (tval < 0.0) {
+                        if (tval > -1e-12) // treat tiny negative as zero
+                            tval = 0.0;
+                        else
+                            throw std::runtime_error("inverseTransformOutputs: transformed value < 0");
                     }
-                    double one_minus = 1.0 - t;
-                    if (!(one_minus > 0.0)) throw std::runtime_error("inverseTransformOutputs: 1 - t <= 0");
+
+                    double one_minus = 1.0 - tval;
+                    if (!(one_minus > 0.0))
+                        throw std::runtime_error("inverseTransformOutputs: 1 - t <= 0");
+
                     out(r, c) = -std::log(one_minus) / alpha;
                 }
             }
             return out;
         }
 
-        case transform_type::ZSCORE: {
-            if (!m_scaler.fitted) {
-                throw std::runtime_error("inverseTransformOutputs: scaler not fitted");
-            }
-            // We assume the target column in original m_data is the last column...
+        case transform_type::ZSCORE:
+        {
+            if (!m_scaler.fitted)
+                throw std::runtime_error("inverseTransformOutputs: ZSCORE scaler not fitted");
 
-            const Eigen::Index targetCol = m_data.cols() - 1;
-            if (targetCol < 0) throw std::runtime_error("inverseTransformOutputs: no columns in m_data");
             double mean = m_scaler.min(targetCol);
             double stddev = m_scaler.max(targetCol);
 
