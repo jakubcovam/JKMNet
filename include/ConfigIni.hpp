@@ -193,17 +193,25 @@ strVecToTransformTypes(const std::vector<std::string>& strs)
 }
 
 enum class TrainerType {
-    ONLINE,
-    BATCH,
-    ONLINE_EPOCH,
-    BATCH_EPOCH
+    ONLINE_ADAM,
+    BATCH_ADAM,
+    ONLINE_ADAM_EPOCH,
+    BATCH_ADAM_EPOCH,
+    ONLINE_BP,
+    BATCH_BP,
+    ONLINE_BP_EPOCH,
+    BATCH_BP_EPOCH
 };
 
 inline TrainerType strToTrainerType(const std::string& s) {
-    if (s == "online")       return TrainerType::ONLINE;
-    if (s == "batch")        return TrainerType::BATCH;
-    if (s == "online_epoch") return TrainerType::ONLINE_EPOCH;
-    if (s == "batch_epoch")  return TrainerType::BATCH_EPOCH;
+    if (s == "online_adam")       return TrainerType::ONLINE_ADAM;
+    if (s == "batch_adam")        return TrainerType::BATCH_ADAM;
+    if (s == "online_adam_epoch") return TrainerType::ONLINE_ADAM_EPOCH;
+    if (s == "batch_adam_epoch")  return TrainerType::BATCH_ADAM_EPOCH;
+    if (s == "online_bp")       return TrainerType::ONLINE_BP;
+    if (s == "batch_bp")        return TrainerType::BATCH_BP;
+    if (s == "online_bp_epoch") return TrainerType::ONLINE_BP_EPOCH;
+    if (s == "batch_bp_epoch")  return TrainerType::BATCH_BP_EPOCH;
     throw std::invalid_argument("Unknown trainer type: " + s);
 }
 

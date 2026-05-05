@@ -431,14 +431,14 @@ void JKMNet::ensembleRunMlpVector(){
         
         // Switch for trainer type
         switch (trainerType) {
-            case TrainerType::ONLINE:
+            case TrainerType::ONLINE_ADAM:
                 mlps_[run].onlineAdam(
                     cfg_.max_iterations, cfg_.max_error,
                     cfg_.learning_rate,  X_train, Y_train
                 );
                 break;
 
-            case TrainerType::BATCH:
+            case TrainerType::BATCH_ADAM:
                 mlps_[run].batchAdam(
                     cfg_.max_iterations, cfg_.max_error,
                     cfg_.batch_size, cfg_.learning_rate,
@@ -446,7 +446,23 @@ void JKMNet::ensembleRunMlpVector(){
                 );
                 break;
 
-            case TrainerType::ONLINE_EPOCH:
+                
+            case TrainerType::ONLINE_BP:
+                mlps_[run].onlineBP(
+                    cfg_.max_iterations, cfg_.max_error,
+                    cfg_.learning_rate,  X_train, Y_train
+                );
+                break;
+
+            case TrainerType::BATCH_BP:
+                mlps_[run].batchBP(
+                    cfg_.max_iterations, cfg_.max_error,
+                    cfg_.batch_size, cfg_.learning_rate,
+                    X_train, Y_train
+                );
+                break;
+
+            case TrainerType::ONLINE_ADAM_EPOCH:
                 resultMetrics = mlps_[run].onlineAdamEpochVal(
                     X_train, Y_train, X_valid, Y_valid,
                     cfg_.max_iterations, cfg_.learning_rate, cfg_.max_metrics_step
@@ -467,8 +483,51 @@ void JKMNet::ensembleRunMlpVector(){
                 Metrics::saveMetricsCsv(rsrValFile, resultMetrics[13]);
                 break;
 
-            case TrainerType::BATCH_EPOCH:
+            case TrainerType::BATCH_ADAM_EPOCH:
                 resultMetrics = mlps_[run].batchAdamEpochVal(
+                    X_train, Y_train, X_valid, Y_valid,
+                    cfg_.batch_size, cfg_.max_iterations,
+                    cfg_.learning_rate, cfg_.max_metrics_step
+                );
+                Metrics::saveMetricsCsv(mseCalFile, resultMetrics[0]);
+                Metrics::saveMetricsCsv(rmseCalFile, resultMetrics[1]);
+                Metrics::saveMetricsCsv(piCalFile, resultMetrics[2]);
+                Metrics::saveMetricsCsv(nsCalFile, resultMetrics[3]);
+                Metrics::saveMetricsCsv(kgeCalFile, resultMetrics[4]);
+                Metrics::saveMetricsCsv(pbiasCalFile, resultMetrics[5]);
+                Metrics::saveMetricsCsv(rsrCalFile, resultMetrics[6]);
+                Metrics::saveMetricsCsv(mseValFile, resultMetrics[7]);
+                Metrics::saveMetricsCsv(rmseValFile, resultMetrics[8]);
+                Metrics::saveMetricsCsv(piValFile, resultMetrics[9]);
+                Metrics::saveMetricsCsv(nsValFile, resultMetrics[10]);
+                Metrics::saveMetricsCsv(kgeValFile, resultMetrics[11]);
+                Metrics::saveMetricsCsv(pbiasValFile, resultMetrics[12]);
+                Metrics::saveMetricsCsv(rsrValFile, resultMetrics[13]);
+                break;
+
+            case TrainerType::ONLINE_BP_EPOCH:
+                resultMetrics = mlps_[run].onlineBpEpochVal(
+                    X_train, Y_train, X_valid, Y_valid,
+                    cfg_.max_iterations, cfg_.learning_rate, cfg_.max_metrics_step
+                );
+                Metrics::saveMetricsCsv(mseCalFile, resultMetrics[0]);
+                Metrics::saveMetricsCsv(rmseCalFile, resultMetrics[1]);
+                Metrics::saveMetricsCsv(piCalFile, resultMetrics[2]);
+                Metrics::saveMetricsCsv(nsCalFile, resultMetrics[3]);
+                Metrics::saveMetricsCsv(kgeCalFile, resultMetrics[4]);
+                Metrics::saveMetricsCsv(pbiasCalFile, resultMetrics[5]);
+                Metrics::saveMetricsCsv(rsrCalFile, resultMetrics[6]);
+                Metrics::saveMetricsCsv(mseValFile, resultMetrics[7]);
+                Metrics::saveMetricsCsv(rmseValFile, resultMetrics[8]);
+                Metrics::saveMetricsCsv(piValFile, resultMetrics[9]);
+                Metrics::saveMetricsCsv(nsValFile, resultMetrics[10]);
+                Metrics::saveMetricsCsv(kgeValFile, resultMetrics[11]);
+                Metrics::saveMetricsCsv(pbiasValFile, resultMetrics[12]);
+                Metrics::saveMetricsCsv(rsrValFile, resultMetrics[13]);
+                break;
+
+            case TrainerType::BATCH_BP_EPOCH:
+                resultMetrics = mlps_[run].batchBpEpochVal(
                     X_train, Y_train, X_valid, Y_valid,
                     cfg_.batch_size, cfg_.max_iterations,
                     cfg_.learning_rate, cfg_.max_metrics_step

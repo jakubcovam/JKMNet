@@ -95,6 +95,7 @@ class MLP {
         void onlineBP(int maxIterations, double maxError, double learningRate, const Eigen::MatrixXd& X, const Eigen::MatrixXd& Y);    //!< Online backpropagation - separete inp out matrices
         void onlineAdam(int maxIterations, double maxError, double learningRate, const Eigen::MatrixXd& X, const Eigen::MatrixXd& Y);  //!< Online backpropagation using Adam algorithm - separete inp out matrices
         void batchAdam(int maxIterations, double maxError, int batchSize, double learningRate, const Eigen::MatrixXd& X, const Eigen::MatrixXd& Y);  //!< Batch backpropagation using Adam algorithm - separete inp out matrices
+        void batchBP(int maxIterations, double maxError, int batchSize, double learningRate, const Eigen::MatrixXd& X, const Eigen::MatrixXd& Y);    //!< Batch backpropagation - separete inp out matrices
 
         std::vector<Eigen::MatrixXd> onlineAdamEpochVal(
             const Eigen::MatrixXd &Xtrain,
@@ -106,6 +107,25 @@ class MLP {
             int metricsAfterXEpochs);
 
         std::vector<Eigen::MatrixXd> batchAdamEpochVal(
+            const Eigen::MatrixXd &Xtrain,
+            const Eigen::MatrixXd &Ytrain,
+            const Eigen::MatrixXd &Xval,
+            const Eigen::MatrixXd &Yval,
+            int batchSize,
+            int maxIterations,
+            double learningRate,
+            int metricsAfterXEpochs);
+
+        std::vector<Eigen::MatrixXd> onlineBpEpochVal(
+            const Eigen::MatrixXd &Xtrain,
+            const Eigen::MatrixXd &Ytrain,
+            const Eigen::MatrixXd &Xval,
+            const Eigen::MatrixXd &Yval,
+            int maxIterations,
+            double learningRate,
+            int metricsAfterXEpochs);
+
+        std::vector<Eigen::MatrixXd> batchBpEpochVal(
             const Eigen::MatrixXd &Xtrain,
             const Eigen::MatrixXd &Ytrain,
             const Eigen::MatrixXd &Xval,
