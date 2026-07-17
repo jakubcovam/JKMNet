@@ -91,6 +91,12 @@ void LSTMLayer::initLSTMLayer(const int numInputs,
     Wgradient = Eigen::MatrixXd::Zero(settings.cells4gates, settings.inputs);
     Ugradient = Eigen::MatrixXd::Zero(settings.cells4gates, settings.cells);
     bGradient = Eigen::VectorXd::Zero(settings.cells4gates);
+    W_MtForAdam = Eigen::MatrixXd::Zero(settings.cells4gates, settings.inputs);
+    W_VtForAdam = Eigen::MatrixXd::Zero(settings.cells4gates, settings.inputs);
+    U_MtForAdam = Eigen::MatrixXd::Zero(settings.cells4gates, settings.cells);
+    U_VtForAdam = Eigen::MatrixXd::Zero(settings.cells4gates, settings.cells);
+    b_MtForAdam = Eigen::VectorXd::Zero(settings.cells4gates);
+    b_VtForAdam = Eigen::VectorXd::Zero(settings.cells4gates);
     deltaOutput = Eigen::MatrixXd::Zero(settings.cells,settings.timeSteps);
     deltaCellState = Eigen::MatrixXd::Zero(settings.cells,settings.timeSteps);
     deltaGates = Eigen::MatrixXd::Zero(settings.cells4gates,settings.timeSteps);
@@ -214,6 +220,23 @@ void LSTMLayer::updateWeights(double learningRate){
     W -= learningRate * Wgradient;
     U -= learningRate * Ugradient;
     b -= learningRate * bGradient;
+}
+
+void LSTMLayer::updateAdam(double learningRate, int iterationNum, double beta1, double beta2, double epsi) {
+    W_MtForAdam = beta1 * W_MtForAdam.array() + (1 - beta1) * Wgradient.array();
+    U_MtForAdam = beta1 * U_MtForAdam.array() + (1 - beta1) * Ugradient.array();
+    b_MtForAdam = beta1 * b_MtForAdam.array() + (1 - beta1) * bGradient.array();
+
+    W_VtForAdam = beta2 * W_VtForAdam.array() + (1 - beta2) * Wgradient.array() * Wgradient.array();
+    U_VtForAdam = beta2 * U_VtForAdam.array() + (1 - beta2) * Ugradient.array() * Ugradient.array();
+    b_VtForAdam = beta2 * b_VtForAdam.array() + (1 - beta2) * bGradient.array() * bGradient.array();
+
+    W -= learningRate * (W_MtForAdam.array() / ((1 - std::pow(beta1, iterationNum)) * 
+               (sqrt(W_VtForAdam.array()/(1 - std::pow(beta2,iterationNum))) + epsi))).matrix();
+    U -= learningRate * (U_MtForAdam.array() / ((1 - std::pow(beta1, iterationNum)) * 
+            (sqrt(U_VtForAdam.array()/(1 - std::pow(beta2,iterationNum))) + epsi))).matrix();
+    b -= learningRate * (b_MtForAdam.array() / ((1 - std::pow(beta1, iterationNum)) * 
+            (sqrt(b_VtForAdam.array()/(1 - std::pow(beta2,iterationNum))) + epsi))).matrix();
 }
 
 void LSTMLayer::eraseMemory(){

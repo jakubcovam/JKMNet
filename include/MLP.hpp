@@ -91,6 +91,9 @@ class MLP {
         bool testRepeatable(const Eigen::VectorXd& input, int repeats = 10, double tol = 1e-8, int rngSeed = 0) const; //!< Repeatability check for 'runMLP'
         void runAndBP(const Eigen::VectorXd& input, const Eigen::VectorXd& obsOut, double learningRate); //!< Forward pass and update weights with backpropagation (one input)
         void runAndBPadam(const Eigen::VectorXd& input, const Eigen::VectorXd& obsOut, double learningRate, int iterationNum); //!< Forward pass and update weights with Adam algorithm (one input)
+        void runAndCalculateBatchGradient(const Eigen::VectorXd& input, const Eigen::VectorXd& obsOut);
+        void updateWeights(double learningRate);
+        void updateWeightsAdam(double learningRate, int iterationNum);
 
         void onlineBP(int maxIterations, double maxError, double learningRate, const Eigen::MatrixXd& X, const Eigen::MatrixXd& Y);    //!< Online backpropagation - separete inp out matrices
         void onlineAdam(int maxIterations, double maxError, double learningRate, const Eigen::MatrixXd& X, const Eigen::MatrixXd& Y);  //!< Online backpropagation using Adam algorithm - separete inp out matrices

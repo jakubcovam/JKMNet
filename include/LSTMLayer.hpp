@@ -41,6 +41,7 @@ public:
     void calculateTimeSteps();      //!< Calculate outputs for n time-steps
     void calculateGradients();
     void updateWeights(double learningRate);
+    void updateAdam(double learningRate, int iterationNum, double beta1, double beta2, double epsi);
     void eraseMemory();
     void setDeltaFromNextLayer(const Eigen::VectorXd& delta);
     void setDeltaFromNextLayer(const Eigen::MatrixXd& delta);
@@ -63,6 +64,12 @@ private:
     Eigen::MatrixXd Wgradient;
     Eigen::MatrixXd Ugradient;
     Eigen::VectorXd bGradient;
+    Eigen::MatrixXd W_MtForAdam;
+    Eigen::MatrixXd W_VtForAdam;
+    Eigen::MatrixXd U_MtForAdam;
+    Eigen::MatrixXd U_VtForAdam;
+    Eigen::VectorXd b_MtForAdam;
+    Eigen::VectorXd b_VtForAdam;
     Eigen::MatrixXd deltaOutput;
     Eigen::MatrixXd deltaCellState;
     Eigen::MatrixXd deltaGates;
