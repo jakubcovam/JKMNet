@@ -1127,7 +1127,7 @@ void JKMNet::ensembleLstmPastFutureTest(){
 
         int runIndex = run + 1;
 
-        for(int iter = 0; iter < cfg_.max_iterations ; iter++){
+        for(int iter = 1; iter <= cfg_.max_iterations ; iter++){
             for(size_t i = 0; i < X_trainPast.size() ; i++){
                 lstm_past_vec[run].setInputTSSegment(X_trainPast[i]);
                 lstm_future_vec[run].setInputTSSegment(X_trainFuture[i]);
@@ -1140,8 +1140,9 @@ void JKMNet::ensembleLstmPastFutureTest(){
                 lstm_to_mlp[run] = lstm_together_vec[run].getForwardOutput().transpose();
                 separate_obs[run] = Y_train.row(i);
                 for(int s = 0; s < lstm_to_mlp[run].cols(); s++){
-                    mlps_[run].runAndBP(lstm_to_mlp[run].col(s),separate_obs[run].col(s),cfg_.learning_rate);
+                    mlps_[run].runAndCalculateBatchGradient(lstm_to_mlp[run].col(s),separate_obs[run].col(s));
                     delta_mlp_to_lstm[run].col(s) = mlps_[run].getFirstLayerInputDelta();
+                    mlps_[run].updateWeightsAdam(cfg_.learning_rate,iter);
                 }
                 lstm_together_vec[run].setDeltaFromNextLayer(delta_mlp_to_lstm[run]);
                 lstm_together_vec[run].calculateGradients();
@@ -1149,9 +1150,9 @@ void JKMNet::ensembleLstmPastFutureTest(){
                 lstm_future_vec[run].setDeltaFromNextLayer(Eigen::MatrixXd(lstm_together_vec[run].getDeltaInputs().block(0,cfg_.lstm_past_time_steps,cfg_.lstm_cells,cfg_.lstm_future_time_steps)));
                 lstm_past_vec[run].calculateGradients();
                 lstm_future_vec[run].calculateGradients();
-                lstm_past_vec[run].updateWeights(cfg_.learning_rate * 4);
-                lstm_future_vec[run].updateWeights(cfg_.learning_rate * 4);
-                lstm_together_vec[run].updateWeights(cfg_.learning_rate * 3);
+                lstm_past_vec[run].updateAdam(cfg_.learning_rate,iter,0.9, 0.99, 1e-8);
+                lstm_future_vec[run].updateAdam(cfg_.learning_rate,iter,0.9, 0.99, 1e-8);
+                lstm_together_vec[run].updateAdam(cfg_.learning_rate,iter,0.9, 0.99, 1e-8);
                 lstm_past_vec[run].eraseMemory();
                 lstm_future_vec[run].eraseMemory();
                 lstm_together_vec[run].eraseMemory();

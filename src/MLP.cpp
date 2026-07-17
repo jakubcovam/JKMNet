@@ -1061,6 +1061,45 @@ void MLP::runAndBPadam(const Eigen::VectorXd& input, const Eigen::VectorXd& obsO
     }
 }
 
+void MLP::runAndCalculateBatchGradient(const Eigen::VectorXd& input, const Eigen::VectorXd& obsOut) {
+    if (layers_.empty())
+        throw std::logic_error("runMLP called before initMLP");
+
+    calcOneOutput(input);
+
+    // Output layer BP
+    layers_[layers_.size()-1].setDeltas(layers_[layers_.size()-1].getOutput() - obsOut);
+    layers_[layers_.size()-1].calculateBatchGradient();
+
+    // Remaining layers BP
+    if(layers_.size() > 1){
+        for(int i = layers_.size() - 2; i >= 0; --i){
+            layers_[i].calculateDeltas(layers_[i+1].getWeights(),layers_[i+1].getDeltas(),activFuncs[i]);
+            layers_[i].calculateBatchGradient();
+        }
+    }
+}
+
+void MLP::updateWeights(double learningRate){
+    if (layers_.empty())
+        throw std::logic_error("updateWeights called before initMLP");
+
+    for(size_t i = 0; i < getNumLayers(); i++){
+        layers_[i].updateWeights(learningRate);
+        layers_[i].setGradient(layers_[i].getGradient().setZero());
+    }
+}
+
+void MLP::updateWeightsAdam(double learningRate, int iterationNum){
+    if (layers_.empty())
+        throw std::logic_error("updateWeights called before initMLP");
+
+    for(size_t i = 0; i < getNumLayers(); i++){
+        layers_[i].updateAdam(learningRate,iterationNum,0.9, 0.99, 1e-8);
+        layers_[i].setGradient(layers_[i].getGradient().setZero());
+    }
+}
+
 /**
  * Online backpropagation - separete inp out matrices
  */
