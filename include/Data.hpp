@@ -66,17 +66,24 @@ class Data {
         void printHeader(const std::string& timestampColName = "timestamp") const;  //!< Print header line, i.e. timestamp + numeric column names
         std::vector<double> getColumnValues(const std::string& name) const; //!< Return a copy of the values in a selected column by name
 
-        void setTransform(const std::vector<transform_type>& transforms, double alpha = 0.015, bool excludeLastCol = false);  //!< Set which transform to apply (applies to all numeric columns)
+        void setTransform(const std::vector<transform_type>& transforms, std::vector<double> alpha, bool excludeLastCol = false);  //!< Set which transform to apply (applies to all numeric columns)
         void applyTransform();  //!< Apply the previously configured transform to m_data
         void inverseTransform();  //!< Inverse the global transform (to bring predictions back)
         Eigen::MatrixXd inverseTransformOutputs(const Eigen::MatrixXd& M) const;  //!< Inverse the global transform for outputs
         std::tuple<Eigen::MatrixXd, Eigen::MatrixXd, std::vector<VarScaler>>
-        transformMats(Eigen::MatrixXd in,
+        transformMatsGetScalers(Eigen::MatrixXd in,
                      Eigen::MatrixXd out,
                      const std::vector<transform_type>& transforms,
-                     double alpha,
+                     std::vector<double> alpha,
                      bool excludeLastCol,
                      std::vector<std::vector<int>> input_numbers);
+        std::pair<Eigen::MatrixXd, Eigen::MatrixXd>
+        transformMatsApplyScalers(Eigen::MatrixXd in,
+                Eigen::MatrixXd out,
+                const std::vector<transform_type>& transforms,
+                bool excludeLastCol,
+                std::vector<std::vector<int>> input_numbers,
+                const std::vector<VarScaler>& scalers);
         Eigen::MatrixXd inverseTransformOutputs(const Eigen::MatrixXd& M, const VarScaler& outScaler);
         
         std::vector<size_t> calibPatternOriginalIndices() const { return m_calib_pattern_orig_indices; }
@@ -164,7 +171,7 @@ class Data {
 
         // Global transform config
         std::vector<transform_type> m_transforms;
-        double m_alpha = 0.015;
+        std::vector<double> m_alpha;
         bool m_excludeLastCol = false;
         Scaler m_scaler;   //!< Stores per-column min/max after a MINMAX fit
 

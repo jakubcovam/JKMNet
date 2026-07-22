@@ -102,7 +102,7 @@ struct RunConfig {
 
     // transforms
     std::vector<std::string> transform;
-    double transform_alpha = 0.015;
+    std::vector<double> transform_alpha;
     bool exclude_last_col_from_transform = false;
     bool remove_na_before_calib = true;
 
@@ -303,6 +303,20 @@ inline std::vector<unsigned> parseUnsignedList(const std::string &s) {
     return out;
 }
 
+inline std::vector<double> parseUnsignedListDouble(const std::string &s) {
+    std::vector<double> out;
+    for (auto &tok : splitCommaList(s)) {
+        try {
+            double tmp = std::stod(tok);
+            if (tmp < 0) throw std::runtime_error("negative double in unsigned list");
+            out.push_back(static_cast<double>(tmp));
+        } catch (...) {
+            throw std::runtime_error("parseUnsignedListDouble: invalid double '" + tok + "'");
+        }
+    }
+    return out;
+}
+
 inline std::vector<int> parseRangeToken(const std::string& tok)
 {
     auto parts = splitList(tok, ':');
@@ -464,7 +478,10 @@ inline RunConfig parseConfigIni(const std::string &path) {
     }
 
     std::string sa = get("transform_alpha");
-    if (!sa.empty()) cfg.transform_alpha = std::stod(sa);
+    if (!sa.empty()) cfg.transform_alpha = parseUnsignedListDouble(sa);
+    if (cfg.transform_alpha.size() == 1 && cfg.columns.size() > 1) {
+        cfg.transform_alpha.resize(cfg.columns.size(), cfg.transform_alpha[0]);
+    }
 
     std::string sexc = get("exclude_last_col_from_transform");
     if (!sexc.empty()) cfg.exclude_last_col_from_transform = parseBool(sexc);
@@ -524,6 +541,10 @@ inline RunConfig parseConfigIni(const std::string &path) {
     // check that input_numbers length matches columns (if columns provided)
     if (!cfg.columns.empty() && cfg.columns.size() != cfg.input_numbers.size()) {
         throw std::runtime_error("config: columns length and input_numbers length must match");
+    }
+
+    if(cfg.columns.size() != cfg.transform_alpha.size()){
+        throw std::runtime_error("config: columns length and transform_alpha length must match");
     }
 
     return cfg;

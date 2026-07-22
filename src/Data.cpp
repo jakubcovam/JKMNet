@@ -376,7 +376,9 @@ void Data::logRunSettings(std::ostream& os, const RunConfig& cfg, unsigned run_i
     os << "Transform: ";
     for (const auto& t : cfg.transform) os << t << " ";
     os << "\n";
-    os << "Transform alpha: " << cfg.transform_alpha << "\n";
+    os << "Transform alpha: ";
+    for (const auto& t : cfg.transform_alpha) os << t << " ";
+    os << "\n";
     os << "Exclude last col from transform: "
        << (cfg.exclude_last_col_from_transform ? "true" : "false") << "\n";
     os << "Remove NA before calib: "
@@ -467,7 +469,7 @@ std::vector<double> Data::getColumnValues(const std::string& name) const {
  * Set which transform to apply for each column
  */
 void Data::setTransform(const std::vector<transform_type>& transforms,
-                        double alpha,
+                        std::vector<double> alpha,
                         bool excludeLastCol)
 {
     m_alpha = alpha;
@@ -477,6 +479,10 @@ void Data::setTransform(const std::vector<transform_type>& transforms,
 
     if (static_cast<Eigen::Index>(transforms.size()) != cols) {
         throw std::runtime_error("setTransform: size of transforms vector must match number of columns");
+    }
+
+    if (static_cast<Eigen::Index>(alpha.size()) != cols) {
+        throw std::runtime_error("setTransform: size of alpha vector must match number of columns");
     }
 
     m_transforms = transforms;
@@ -564,7 +570,7 @@ void Data::applyTransform()
                 for (Eigen::Index r = 0; r < R; ++r) {
                     double v = m_data(r, c);
                     if (std::isfinite(v)) {
-                        double t = 1.0 - std::exp(-m_alpha * v);
+                        double t = 1.0 - std::exp(-m_alpha[c] * v);
                         m_data(r, c) = std::isfinite(t)
                             ? t
                             : std::numeric_limits<double>::quiet_NaN();
@@ -679,7 +685,7 @@ void Data::inverseTransform()
 
             case transform_type::NONLINEAR:
             {
-                const double alpha = m_alpha;
+                const double alpha = m_alpha[c];
 
                 for (Eigen::Index r = 0; r < R; ++r) {
                     double& t = m_data(r, c);
@@ -763,7 +769,7 @@ Eigen::MatrixXd Data::inverseTransformOutputs(const Eigen::MatrixXd& M) const
 
         case transform_type::NONLINEAR:
         {
-            const double alpha = m_alpha;
+            const double alpha = m_alpha.back();
             Eigen::MatrixXd out = M;
 
             for (Eigen::Index r = 0; r < out.rows(); ++r) {
@@ -811,10 +817,10 @@ Eigen::MatrixXd Data::inverseTransformOutputs(const Eigen::MatrixXd& M) const
 }
 
 std::tuple<Eigen::MatrixXd, Eigen::MatrixXd, std::vector<VarScaler>>
-Data::transformMats(Eigen::MatrixXd in,
+Data::transformMatsGetScalers(Eigen::MatrixXd in,
                      Eigen::MatrixXd out,
                      const std::vector<transform_type>& transforms,
-                     double alpha,
+                     std::vector<double> alpha,
                      bool excludeLastCol,
                      std::vector<std::vector<int>> input_numbers)
 {
@@ -967,7 +973,7 @@ Data::transformMats(Eigen::MatrixXd in,
                     for (Eigen::Index r = 0; r < R; ++r) {
                         double& x = valueAt(cr, r);
                         if (std::isfinite(x)) {
-                            double tmp = 1.0 - std::exp(-alpha * x);
+                            double tmp = 1.0 - std::exp(-alpha[i] * x);
                             x = std::isfinite(tmp)
                                 ? tmp
                                 : std::numeric_limits<double>::quiet_NaN();
@@ -977,7 +983,7 @@ Data::transformMats(Eigen::MatrixXd in,
 
                 // NONLINEAR has no min/max-style back-transform parameters
                 // beyond alpha itself; record alpha in p1 for convenience.
-                scalers[i] = VarScaler{t, alpha, 0.0, true};
+                scalers[i] = VarScaler{t, alpha[i], 0.0, true};
                 break;
             }
 
@@ -1044,6 +1050,170 @@ Data::transformMats(Eigen::MatrixXd in,
     // scalers already holds one VarScaler per logical variable, in order --
     // nothing further to pack.
     return std::make_tuple(in, out, scalers);
+}
+
+std::pair<Eigen::MatrixXd, Eigen::MatrixXd>
+Data::transformMatsApplyScalers(Eigen::MatrixXd in,
+                                Eigen::MatrixXd out,
+                                const std::vector<transform_type>& transforms,
+                                bool excludeLastCol,
+                                std::vector<std::vector<int>> input_numbers,
+                                const std::vector<VarScaler>& scalers)
+{
+    if (transforms.size() != input_numbers.size()) {
+        throw std::runtime_error(
+            "transformMatsApplyScaler: transforms and input_numbers must have the same size");
+    }
+    if (transforms.size() != scalers.size()) {
+        throw std::runtime_error(
+            "transformMatsApplyScaler: scalers must have the same size as transforms");
+    }
+
+    const std::size_t N = transforms.size();
+
+    if (N == 0)
+        return {in, out};
+
+    const Eigen::Index inCols  = in.cols();
+    const Eigen::Index inRows  = in.rows();
+    const Eigen::Index outRows = out.rows();
+
+    // --- Map each logical variable to its block of columns in `in` -----
+    std::vector<Eigen::Index> blockStart(N, -1);
+    std::vector<Eigen::Index> blockSize(N, 0);
+
+    Eigen::Index cursor = 0;
+    for (std::size_t i = 0; i < N; ++i) {
+        Eigen::Index sz = static_cast<Eigen::Index>(input_numbers[i].size());
+        blockSize[i] = sz;
+        if (sz > 0) {
+            blockStart[i] = cursor;
+            cursor += sz;
+        }
+    }
+
+    if (cursor != inCols) {
+        throw std::runtime_error(
+            "transformMatsApplyScaler: total columns implied by input_numbers does not match in.cols()");
+    }
+
+    const bool lastHasInBlock = (N > 0) && (blockSize[N - 1] > 0);
+    const std::size_t lastIdx = N - 1;
+
+    // ---------------------------------------------------------------
+    // Process each logical variable.
+    // ---------------------------------------------------------------
+    for (std::size_t i = 0; i < N; ++i) {
+
+        const bool isLast = (i == lastIdx);
+
+        if (isLast && excludeLastCol)
+            continue;
+
+        const VarScaler& sc = scalers[i];
+
+        if (!sc.fitted || sc.type == transform_type::NONE)
+            continue;
+
+        // Build the same ColRef list as in the forward pass.
+        struct ColRef { bool isOut; Eigen::Index col; };
+        std::vector<ColRef> cells;
+
+        if (!isLast) {
+            for (Eigen::Index c = 0; c < blockSize[i]; ++c)
+                cells.push_back({false, blockStart[i] + c});
+        } else {
+            if (lastHasInBlock) {
+                for (Eigen::Index c = 0; c < blockSize[i]; ++c)
+                    cells.push_back({false, blockStart[i] + c});
+            }
+            for (Eigen::Index c = 0; c < out.cols(); ++c)
+                cells.push_back({true, c});
+        }
+
+        if (cells.empty())
+            continue;
+
+        auto valueAt = [&](const ColRef& cr, Eigen::Index r) -> double& {
+            return cr.isOut ? out(r, cr.col) : in(r, cr.col);
+        };
+        auto rowsFor = [&](const ColRef& cr) -> Eigen::Index {
+            return cr.isOut ? outRows : inRows;
+        };
+
+        switch (sc.type) {
+
+            case transform_type::NONE:
+                break;
+
+            case transform_type::MINMAX:
+            {
+                double mn   = sc.p1;
+                double mx   = sc.p2;
+                double span = mx - mn;
+                if (span == 0.0) span = 1.0;
+
+                for (auto& cr : cells) {
+                    Eigen::Index R = rowsFor(cr);
+                    for (Eigen::Index r = 0; r < R; ++r) {
+                        double& x = valueAt(cr, r);
+                        if (std::isfinite(x))
+                            x = (x - mn) / span;
+                    }
+                }
+                break;
+            }
+
+            case transform_type::NONLINEAR:
+            {
+                const double alpha = sc.p1;
+
+                for (auto& cr : cells) {
+                    Eigen::Index R = rowsFor(cr);
+                    for (Eigen::Index r = 0; r < R; ++r) {
+                        double& x = valueAt(cr, r);
+                        if (std::isfinite(x)) {
+                            double tmp = 1.0 - std::exp(-alpha * x);
+                            x = std::isfinite(tmp)
+                                ? tmp
+                                : std::numeric_limits<double>::quiet_NaN();
+                        }
+                    }
+                }
+                break;
+            }
+
+            case transform_type::ZSCORE:
+            {
+                double mean   = sc.p1;
+                double stddev = sc.p2;
+
+                for (auto& cr : cells) {
+                    Eigen::Index R = rowsFor(cr);
+                    for (Eigen::Index r = 0; r < R; ++r) {
+                        double& x = valueAt(cr, r);
+                        if (std::isfinite(x)) {
+                            if (stddev > 0.0) {
+                                double tmp = (x - mean) / stddev;
+                                x = std::isfinite(tmp)
+                                    ? tmp
+                                    : std::numeric_limits<double>::quiet_NaN();
+                            } else {
+                                x = 0.0;
+                            }
+                        }
+                    }
+                }
+                break;
+            }
+
+            default:
+                throw std::runtime_error(
+                    "transformMatsApplyScaler: unknown transform_type in scaler");
+        }
+    }
+
+    return {in, out};
 }
 
 Eigen::MatrixXd Data::inverseTransformOutputs(const Eigen::MatrixXd& M, const VarScaler& outScaler)

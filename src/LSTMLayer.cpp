@@ -231,12 +231,12 @@ void LSTMLayer::updateAdam(double learningRate, int iterationNum, double beta1, 
     U_VtForAdam = beta2 * U_VtForAdam.array() + (1 - beta2) * Ugradient.array() * Ugradient.array();
     b_VtForAdam = beta2 * b_VtForAdam.array() + (1 - beta2) * bGradient.array() * bGradient.array();
 
-    W -= learningRate * (W_MtForAdam.array() / ((1 - std::pow(beta1, iterationNum)) * 
-               (sqrt(W_VtForAdam.array()/(1 - std::pow(beta2,iterationNum))) + epsi))).matrix();
-    U -= learningRate * (U_MtForAdam.array() / ((1 - std::pow(beta1, iterationNum)) * 
-            (sqrt(U_VtForAdam.array()/(1 - std::pow(beta2,iterationNum))) + epsi))).matrix();
-    b -= learningRate * (b_MtForAdam.array() / ((1 - std::pow(beta1, iterationNum)) * 
-            (sqrt(b_VtForAdam.array()/(1 - std::pow(beta2,iterationNum))) + epsi))).matrix();
+    double beta1Corr = 1.0 - std::pow(beta1, iterationNum);
+    double beta2Corr = 1.0 - std::pow(beta2, iterationNum);
+
+    W -= learningRate * (W_MtForAdam.array() / (beta1Corr * ((W_VtForAdam.array()/beta2Corr).sqrt() + epsi))).matrix();
+    U -= learningRate * (U_MtForAdam.array() / (beta1Corr * ((U_VtForAdam.array()/beta2Corr).sqrt() + epsi))).matrix();
+    b -= learningRate * (b_MtForAdam.array() / (beta1Corr * ((b_VtForAdam.array()/beta2Corr).sqrt() + epsi))).matrix();
 }
 
 void LSTMLayer::eraseMemory(){
